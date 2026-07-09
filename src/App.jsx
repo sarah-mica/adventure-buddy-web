@@ -6,6 +6,21 @@ import Header from './components/Header.jsx';
 import Roster from './components/Roster.jsx';
 import Itinerary from './components/Itinerary.jsx';
 
+function normalizeTrip(data) {
+  if (!data) return null;
+
+  return {
+    ...data,
+    participants: Array.isArray(data.participants) ? data.participants : [],
+    days: Array.isArray(data.days)
+      ? data.days.map((day) => ({
+          ...day,
+          stops: Array.isArray(day?.stops) ? day.stops : [],
+        }))
+      : [],
+  };
+}
+
 export default function App() {
   const [trip, setTrip] = useState(null);
   const [code, setCode] = useState(null);
@@ -23,11 +38,12 @@ export default function App() {
       try {
         if (c) {
           const data = await api.getTrip(c);
-          setTrip(data);
+          setTrip(normalizeTrip(data));
           setCode(c.toUpperCase());
         } else {
           const data = await api.createTrip();
-          setTrip(data);
+          console.log('Created new trip', data);
+          setTrip(normalizeTrip(data));
           setCode(data.code);
           const url = new URL(window.location.href);
           url.searchParams.set('trip', data.code);
@@ -46,7 +62,7 @@ export default function App() {
   async function joinTrip(newCode) {
     try {
       const data = await api.getTrip(newCode);
-      setTrip(data);
+      setTrip(normalizeTrip(data));
       setCode(newCode);
       const url = new URL(window.location.href);
       url.searchParams.set('trip', newCode);
@@ -74,7 +90,7 @@ export default function App() {
     markSaving();
     try {
       const p = await api.addParticipant(code, name);
-      setTrip(t => ({ ...t, participants: [...t.participants, p] }));
+      setTrip(t => normalizeTrip({ ...t, participants: [...(t?.participants ?? []), p] }));
       markSaved();
     } catch (e) { markFailed(); }
   }
@@ -83,15 +99,15 @@ export default function App() {
     markSaving();
     try {
       await api.removeParticipant(code, id);
-      setTrip(t => ({ ...t, participants: t.participants.filter(p => p.id !== id) }));
+      setTrip(t => normalizeTrip({ ...t, participants: (t?.participants ?? []).filter(p => p.id !== id) }));
       markSaved();
     } catch (e) { markFailed(); }
   }
 
   function updateDayField(dayId, field, value) {
-    setTrip(t => ({
+    setTrip(t => normalizeTrip({
       ...t,
-      days: t.days.map(d => d.id === dayId ? { ...d, [field]: value } : d)
+      days: (t?.days ?? []).map(d => d.id === dayId ? { ...d, [field]: value } : d)
     }));
     markSaving();
     debounce(`day-${dayId}`, async () => {
@@ -108,7 +124,7 @@ export default function App() {
     markSaving();
     try {
       const newDay = await api.addDay(code, { title: `Day ${(trip.days.length || 0) + 1}`, date: '' });
-      setTrip(t => ({ ...t, days: [...t.days, newDay] }));
+      setTrip(t => normalizeTrip({ ...t, days: [...(t?.days ?? []), newDay] }));
       markSaved();
     } catch (e) { markFailed(); }
   }
@@ -118,16 +134,17 @@ export default function App() {
     markSaving();
     try {
       await api.removeDay(code, dayId);
-      setTrip(t => ({ ...t, days: t.days.filter(d => d.id !== dayId) }));
+      setTrip(t => normalizeTrip({ ...t, days: (t?.days ?? []).filter(d => d.id !== dayId) }));
       markSaved();
     } catch (e) { markFailed(); }
   }
 
   function updateStopField(dayId, stopId, field, value) {
-    setTrip(t => ({
+    setTrip(t => normalizeTrip({
       ...t,
-      days: t.days.map(d => d.id !== dayId ? d : {
-        ...d, stops: d.stops.map(s => s.id === stopId ? { ...s, [field]: value } : s)
+      days: (t?.days ?? []).map(d => d.id !== dayId ? d : {
+        ...d,
+        stops: (d?.stops ?? []).map(s => s.id === stopId ? { ...s, [field]: value } : s)
       })
     }));
     markSaving();
@@ -146,9 +163,9 @@ export default function App() {
     markSaving();
     try {
       const newStop = await api.addStop(code, dayId, { name: '', miles: 0, elev: 0 });
-      setTrip(t => ({
+      setTrip(t => normalizeTrip({
         ...t,
-        days: t.days.map(d => d.id === dayId ? { ...d, stops: [...d.stops, newStop] } : d)
+        days: (t?.days ?? []).map(d => d.id === dayId ? { ...d, stops: [...(d?.stops ?? []), newStop] } : d)
       }));
       markSaved();
     } catch (e) { markFailed(); }
@@ -158,9 +175,9 @@ export default function App() {
     markSaving();
     try {
       await api.removeStop(code, stopId);
-      setTrip(t => ({
+      setTrip(t => normalizeTrip({
         ...t,
-        days: t.days.map(d => d.id === dayId ? { ...d, stops: d.stops.filter(s => s.id !== stopId) } : d)
+        days: (t?.days ?? []).map(d => d.id === dayId ? { ...d, stops: (d?.stops ?? []).filter(s => s.id !== stopId) } : d)
       }));
       markSaved();
     } catch (e) { markFailed(); }
@@ -182,8 +199,8 @@ export default function App() {
     );
   }
 
-  const totalMiles = trip.days.reduce(
-    (sum, d) => sum + d.stops.reduce((s, st) => s + (parseFloat(st.miles) || 0), 0), 0
+  const totalMiles = (trip.days ?? []).reduce(
+    (sum, d) => sum + (d?.stops ?? []).reduce((s, st) => s + (parseFloat(st.miles) || 0), 0), 0
   );
 
   return (

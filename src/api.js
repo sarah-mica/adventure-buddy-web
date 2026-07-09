@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
@@ -13,18 +13,18 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  createTrip: () => request('/api/trips', { method: 'POST' }),
-  getTrip: (code) => request(`/api/trips/${code}`),
-  updateTrip: (code, data) => request(`/api/trips/${code}`, { method: 'PUT', body: JSON.stringify(data) }),
+  createTrip: () => request('/api/trip', { method: 'POST' }),
+  getTrip: (code) => request(`/api/trip/${code}`),
+  updateTrip: (code, data) => request(`/api/trip/${code}`, { method: 'PUT', body: JSON.stringify(data) }),
 
-  addParticipant: (code, name) => request(`/api/trips/${code}/participants`, { method: 'POST', body: JSON.stringify({ name }) }),
-  removeParticipant: (code, id) => request(`/api/trips/${code}/participants/${id}`, { method: 'DELETE' }),
+  addParticipant: (code, name) => request(`/api/trip/${code}/participants`, { method: 'POST', body: JSON.stringify({ name }) }),
+  removeParticipant: (code, id) => request(`/api/trip/${code}/participants/${id}`, { method: 'DELETE' }),
 
   addDay: (code, data) => request(`/api/trips/${code}/days`, { method: 'POST', body: JSON.stringify(data) }),
-  updateDay: (code, dayId, data) => request(`/api/trips/${code}/days/${dayId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  removeDay: (code, dayId) => request(`/api/trips/${code}/days/${dayId}`, { method: 'DELETE' }),
+  updateDay: (code, dayId, data) => request(`/api/trip/${code}/days/${dayId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  removeDay: (code, dayId) => request(`/api/trip/${code}/days/${dayId}`, { method: 'DELETE' }),
 
-  addStop: (code, dayId, data) => request(`/api/trips/${code}/days/${dayId}/stops`, { method: 'POST', body: JSON.stringify(data) }),
-  updateStop: (code, stopId, data) => request(`/api/trips/${code}/stops/${stopId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  removeStop: (code, stopId) => request(`/api/trips/${code}/stops/${stopId}`, { method: 'DELETE' }),
+  addStop: (code, dayId, data) => request(`/api/trip/${code}/days/${dayId}/stops`, { method: 'POST', body: JSON.stringify(data) }),
+  updateStop: (code, stopId, data) => request(`/api/trip/${code}/stops/${stopId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  removeStop: (code, stopId) => request(`/api/trip/${code}/stops/${stopId}`, { method: 'DELETE' }),
 };
