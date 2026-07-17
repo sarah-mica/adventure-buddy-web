@@ -1,13 +1,17 @@
 import DayCard from './DayCard.jsx';
+import ItineraryMap from './ItineraryMap.jsx';
 
 export default function Itinerary({
-  days, onUpdateDayField, onAddDay, onRemoveDay,
+  days, tripLocation, onUpdateDayField, onAddDay, onRemoveDay,
   onUpdateStopField, onAddStop, onRemoveStop
 }) {
   return (
     <section className="trail">
-      <p className="sectitle">Itinerary</p>
+      <div className="itinerary-head">
+        <p className="sectitle">Itinerary</p>
+      </div>
       <div style={{ position: 'relative' }}>
+        <ItineraryMap days={days} tripLocation={tripLocation} />
         {days.length > 0 && <div className="trailline"></div>}
         {days.length === 0 && <div className="empty">No days yet — add the first leg of your trek.</div>}
         <div>

@@ -222,6 +222,7 @@ export default function App() {
         />
         <Itinerary
           days={trip.days}
+          tripLocation={trip.location}
           onUpdateDayField={updateDayField}
           onAddDay={addDay}
           onRemoveDay={removeDay}
