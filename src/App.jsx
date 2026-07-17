@@ -6,18 +6,53 @@ import Header from './components/Header.jsx';
 import Roster from './components/Roster.jsx';
 import Itinerary from './components/Itinerary.jsx';
 
+function formatDate(date) {
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+function addDays(date, amount) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + amount);
+  return result;
+}
+
 function normalizeTrip(data) {
   if (!data) return null;
 
+  const days = Array.isArray(data.days)
+    ? data.days.map((day) => ({
+        ...day,
+        stops: Array.isArray(day?.stops) ? day.stops : [],
+      }))
+    : [];
+
+  const startDate = data.start_date || '';
+  const endDate = days.length > 0 && startDate
+    ? formatDate(addDays(startDate, days.length - 1))
+    : startDate;
+
+  const normalizedDays = days.map((day, index) => {
+    const previousDay = days[index - 1];
+    const previousStop = previousDay?.stops?.[previousDay.stops.length - 1];
+    const shouldCarryForward = index > 0 && (!day.stops || day.stops.length === 0) && previousStop;
+
+    return {
+      ...day,
+      date: day.date || (startDate ? formatDate(addDays(startDate, index)) : ''),
+      stops: shouldCarryForward
+        ? [{ ...previousStop, id: `${previousStop.id}-carry` }, ...day.stops]
+        : day.stops,
+    };
+  });
+
   return {
     ...data,
+    start_date: startDate,
+    end_date: endDate,
     participants: Array.isArray(data.participants) ? data.participants : [],
-    days: Array.isArray(data.days)
-      ? data.days.map((day) => ({
-          ...day,
-          stops: Array.isArray(day?.stops) ? day.stops : [],
-        }))
-      : [],
+    days: normalizedDays,
   };
 }
 
@@ -73,7 +108,33 @@ export default function App() {
   }
 
   function updateTripField(field, value) {
-    setTrip(t => ({ ...t, [field]: value }));
+    let nextTrip = null;
+    setTrip(t => {
+      nextTrip = {
+        ...t,
+        [field]: value,
+      };
+      if (field === 'start_date') {
+        nextTrip = {
+          ...nextTrip,
+          end_date: (t?.days?.length || 0) > 0 ? formatDate(addDays(value, (t?.days?.length || 0) - 1)) : value,
+          days: (t?.days ?? []).map((day, index) => ({
+            ...day,
+            date: formatDate(addDays(value, index)),
+          })),
+        };
+      }
+      if (field === 'end_date' && value) {
+        nextTrip = {
+          ...nextTrip,
+          days: (t?.days ?? []).map((day, index) => ({
+            ...day,
+            date: day.date || formatDate(addDays(t.start_date || value, index)),
+          })),
+        };
+      }
+      return normalizeTrip(nextTrip);
+    });
     markSaving();
     debounce('trip-meta', async () => {
       const t = tripRef.current;
@@ -123,8 +184,26 @@ export default function App() {
   async function addDay() {
     markSaving();
     try {
-      const newDay = await api.addDay(code, { title: `Day ${(trip.days.length || 0) + 1}`, date: '' });
-      setTrip(t => normalizeTrip({ ...t, days: [...(t?.days ?? []), newDay] }));
+      const startDate = trip.start_date || '';
+      const newDayIndex = (trip.days?.length || 0);
+      const newDayDate = startDate ? formatDate(addDays(startDate, newDayIndex)) : '';
+      const previousDay = trip.days?.[trip.days.length - 1];
+      const previousStop = previousDay?.stops?.[previousDay.stops.length - 1];
+      const seededStop = previousStop
+        ? { ...previousStop, id: `${previousStop.id}-carry`, name: previousStop.name || '' }
+        : null;
+      const newDay = await api.addDay(code, { title: `Day ${newDayIndex + 1}`, date: newDayDate });
+      setTrip(t => normalizeTrip({
+        ...t,
+        days: [
+          ...(t?.days ?? []),
+          {
+            ...newDay,
+            date: newDayDate || newDay.date || '',
+            stops: seededStop ? [seededStop] : [],
+          },
+        ],
+      }));
       markSaved();
     } catch (e) { markFailed(); }
   }

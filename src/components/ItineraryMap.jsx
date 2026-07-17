@@ -24,10 +24,16 @@ function buildQuery(stop, day, tripLocation) {
   return [stop?.name, day?.title, tripLocation].filter(Boolean).join(' ').trim();
 }
 
+function getDayColors(dayCount) {
+  const palette = ['#d9822b', '#7c9473', '#5b8db8', '#c1553a', '#8f7d4f', '#9c6ade', '#3fa7a3'];
+  return Array.from({ length: dayCount }, (_, index) => palette[index % palette.length]);
+}
+
 export default function ItineraryMap({ days = [], tripLocation = '' }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
   const [positions, setPositions] = useState([]);
+  const dayColors = useMemo(() => getDayColors(days.length || 1), [days.length]);
 
   useEffect(() => {
     let alive = true;
@@ -38,6 +44,7 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
         (day?.stops || []).forEach((stop, stopIndex) => {
           entries.push({
             id: stop?.id || `${dayIndex}-${stopIndex}`,
+            dayIndex,
             query: buildQuery(stop, day, tripLocation),
             index: dayIndex + stopIndex,
             lat: stop?.lat ?? null,
@@ -55,6 +62,7 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
         if (entry.lat != null && entry.lng != null) {
           return {
             id: entry.id,
+            dayIndex: entry.dayIndex,
             position: [Number(entry.lat), Number(entry.lng)],
             label: entry.query,
           };
@@ -80,6 +88,7 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
 
         return {
           id: entry.id,
+          dayIndex: entry.dayIndex,
           position: createFallbackPosition(entry.query, entry.index),
           label: entry.query,
         };
@@ -120,7 +129,19 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
     };
   }, []);
 
-  const route = useMemo(() => positions.map((item) => item.position), [positions]);
+  const dayGroups = useMemo(() => {
+    const groups = new Map();
+    positions.forEach((item) => {
+      if (!groups.has(item.dayIndex)) groups.set(item.dayIndex, []);
+      groups.get(item.dayIndex).push(item);
+    });
+    return Array.from(groups.entries()).map(([dayIndex, items]) => ({
+      dayIndex,
+      color: dayColors[dayIndex] || dayColors[0],
+      items,
+      route: items.map((item) => item.position),
+    }));
+  }, [dayColors, positions]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -129,66 +150,62 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
     const renderMapData = () => {
       if (!positions.length) return;
 
-      if (map.getLayer('itinerary-route')) {
-        map.removeLayer('itinerary-route');
-      }
-      if (map.getSource('itinerary-route')) {
-        map.removeSource('itinerary-route');
-      }
-
       const styleLayers = map.getStyle()?.layers || [];
       styleLayers.forEach((layer) => {
-        if (layer.id.startsWith('marker-')) {
+        if (layer.id.startsWith('route-') || layer.id.startsWith('marker-')) {
           if (map.getLayer(layer.id)) map.removeLayer(layer.id);
           if (map.getSource(layer.id)) map.removeSource(layer.id);
         }
       });
 
-      if (route.length > 1) {
-        const geojson = {
-          type: 'FeatureCollection',
-          features: [
-            {
-              type: 'Feature',
-              geometry: {
-                type: 'LineString',
-                coordinates: route.map((point) => [point[1], point[0]]),
+      dayGroups.forEach((group) => {
+        if (group.route.length > 1) {
+          const sourceId = `route-${group.dayIndex}`;
+          const geojson = {
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                geometry: {
+                  type: 'LineString',
+                  coordinates: group.route.map((point) => [point[1], point[0]]),
+                },
+                properties: {},
               },
-              properties: {},
+            ],
+          };
+
+          map.addSource(sourceId, { type: 'geojson', data: geojson });
+          map.addLayer({
+            id: sourceId,
+            type: 'line',
+            source: sourceId,
+            paint: { 'line-color': group.color, 'line-width': 3 },
+          });
+        }
+
+        group.items.forEach((item) => {
+          const markerId = `marker-${item.id}`;
+          const point = {
+            type: 'FeatureCollection',
+            features: [{
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [item.position[1], item.position[0]] },
+              properties: { title: item.label },
+            }],
+          };
+          map.addSource(markerId, { type: 'geojson', data: point });
+          map.addLayer({
+            id: markerId,
+            type: 'circle',
+            source: markerId,
+            paint: {
+              'circle-radius': 8,
+              'circle-color': group.color,
+              'circle-stroke-color': '#fff',
+              'circle-stroke-width': 1,
             },
-          ],
-        };
-
-        map.addSource('itinerary-route', { type: 'geojson', data: geojson });
-        map.addLayer({
-          id: 'itinerary-route',
-          type: 'line',
-          source: 'itinerary-route',
-          paint: { 'line-color': '#d9822b', 'line-width': 3 },
-        });
-      }
-
-      positions.forEach((item) => {
-        const markerId = `marker-${item.id}`;
-        const point = {
-          type: 'FeatureCollection',
-          features: [{
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [item.position[1], item.position[0]] },
-            properties: { title: item.label },
-          }],
-        };
-        map.addSource(markerId, { type: 'geojson', data: point });
-        map.addLayer({
-          id: markerId,
-          type: 'circle',
-          source: markerId,
-          paint: {
-            'circle-radius': 8,
-            'circle-color': '#d9822b',
-            'circle-stroke-color': '#fff',
-            'circle-stroke-width': 1,
-          },
+          });
         });
       });
 
@@ -211,7 +228,7 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
     } else {
       map.once('style.load', renderMapData);
     }
-  }, [positions, route]);
+  }, [dayGroups, positions]);
 
   if (!days.some((day) => (day?.stops || []).length > 0)) {
     return <div className="map-empty">Add a few waypoints to see them plotted on a map.</div>;
