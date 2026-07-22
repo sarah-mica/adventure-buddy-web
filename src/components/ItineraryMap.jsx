@@ -34,6 +34,19 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
   const mapRef = useRef(null);
   const [positions, setPositions] = useState([]);
   const dayColors = useMemo(() => getDayColors(days.length || 1), [days.length]);
+  const itinerarySignature = useMemo(() => {
+    return JSON.stringify(
+      (days || []).map((day, dayIndex) => ({
+        dayTitle: day?.title || '',
+        stops: (day?.stops || []).map((stop, stopIndex) => ({
+          id: stop?.id || `${dayIndex}-${stopIndex}`,
+          name: stop?.name || '',
+          lat: stop?.lat ?? null,
+          lng: stop?.lng ?? null,
+        })),
+      }))
+    );
+  }, [days, tripLocation]);
 
   useEffect(() => {
     let alive = true;
@@ -101,7 +114,7 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
     return () => {
       alive = false;
     };
-  }, [days, tripLocation]);
+  }, [itinerarySignature]);
 
   useEffect(() => {
     if (!mapContainer.current) return;

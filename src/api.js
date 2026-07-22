@@ -27,4 +27,6 @@ export const api = {
   addStop: (code, dayId, data) => request(`/api/trip/${code}/days/${dayId}/stops`, { method: 'POST', body: JSON.stringify(data) }),
   updateStop: (code, stopId, data) => request(`/api/trip/${code}/stops/${stopId}`, { method: 'PUT', body: JSON.stringify(data) }),
   removeStop: (code, stopId) => request(`/api/trip/${code}/stops/${stopId}`, { method: 'DELETE' }),
+
+  loginWithGoogle: (credential) => request('/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
 };

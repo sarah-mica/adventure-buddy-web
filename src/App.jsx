@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { api } from './api.js';
 import { createDebouncer } from './utils/debounce.js';
 import TopoBackground from './components/TopoBackground.jsx';
@@ -61,10 +61,78 @@ export default function App() {
   const [code, setCode] = useState(null);
   const [saveState, setSaveState] = useState('saved');
   const [loadError, setLoadError] = useState(null);
+  const [authUser, setAuthUser] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return JSON.parse(localStorage.getItem('trailhead-auth'));
+    } catch {
+      return null;
+    }
+  });
+  const [authError, setAuthError] = useState('');
   const debounce = useMemo(() => createDebouncer(), []);
   const tripRef = useRef(trip);
 
   useEffect(() => { tripRef.current = trip; }, [trip]);
+
+  useEffect(() => {
+    if (authUser) {
+      localStorage.setItem('trailhead-auth', JSON.stringify(authUser));
+    } else {
+      localStorage.removeItem('trailhead-auth');
+    }
+  }, [authUser]);
+
+  const handleGoogleCredentialResponse = useCallback(async (response) => {
+    if (!response?.credential) return;
+    try {
+      const user = await api.loginWithGoogle(response.credential);
+      setAuthUser(user);
+      setAuthError('');
+    } catch (e) {
+      setAuthError(e.message || 'Could not sign in with Google.');
+    }
+  }, []);
+
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) return;
+
+    const scriptId = 'google-identity-script';
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+
+    const interval = window.setInterval(() => {
+      if (window.google?.accounts?.id) {
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: handleGoogleCredentialResponse,
+        });
+        clearInterval(interval);
+      }
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [handleGoogleCredentialResponse]);
+
+  function handleGoogleLogin() {
+    if (!window.google?.accounts?.id) {
+      setAuthError('Google sign-in is not available yet.');
+      return;
+    }
+    window.google.accounts.id.prompt();
+  }
+
+  function handleGoogleLogout() {
+    setAuthUser(null);
+    setAuthError('');
+  }
 
   useEffect(() => {
     (async () => {
@@ -291,8 +359,12 @@ export default function App() {
           code={code}
           saveState={saveState}
           totalMiles={totalMiles}
+          authUser={authUser}
+          authError={authError}
           onUpdateField={updateTripField}
           onJoin={joinTrip}
+          onGoogleLogin={handleGoogleLogin}
+          onGoogleLogout={handleGoogleLogout}
         />
         <Roster
           participants={trip.participants}

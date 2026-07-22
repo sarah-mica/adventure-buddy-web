@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import LocationSearchBox from './LocationSearchBox.jsx';
 
-export default function Header({ trip, code, saveState, totalMiles, onUpdateField, onJoin }) {
+export default function Header({ trip, code, saveState, totalMiles, authUser, authError, onUpdateField, onJoin, onGoogleLogin, onGoogleLogout }) {
   const [copied, setCopied] = useState(false);
 
   function copyLink() {
@@ -28,12 +29,14 @@ export default function Header({ trip, code, saveState, totalMiles, onUpdateFiel
         placeholder="Name this trip"
         onChange={e => onUpdateField('name', e.target.value)}
       />
-      <input
+      <LocationSearchBox
+        value={trip.location || ''}
+        placeholder="Where to? e.g. Enchantments, WA"
+        onChange={(nextValue) => onUpdateField('location', nextValue)}
         className="ghost-input"
         style={{ fontSize: '15px', color: 'var(--text-muted)', maxWidth: '400px' }}
-        placeholder="Where to? e.g. Enchantments, WA"
-        value={trip.location || ''}
-        onChange={e => onUpdateField('location', e.target.value)}
+        inputStyle={{ fontSize: '15px', color: 'var(--text-muted)', maxWidth: '400px', width: '100%' }}
+        onSelect={(suggestion) => onUpdateField('location', suggestion.label)}
       />
       <div className="trip-meta">
         <span>Start <b>
@@ -52,8 +55,17 @@ export default function Header({ trip, code, saveState, totalMiles, onUpdateFiel
         <span className="code">{code}</span>
         <button className="btn small secondary" onClick={copyLink}>{copied ? 'Copied!' : 'Copy share link'}</button>
         <button className="btn small secondary" onClick={handleJoin}>Join a trip</button>
+        {authUser ? (
+          <>
+            <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Signed in as {authUser.email}</span>
+            <button className="btn small secondary" onClick={onGoogleLogout}>Sign out</button>
+          </>
+        ) : (
+          <button className="btn small secondary" onClick={onGoogleLogin}>Sign in with Google</button>
+        )}
         <span className="savestate">{saveState}</span>
       </div>
+      {authError ? <p style={{ color: '#ff8a80', margin: '6px 0 0', fontSize: '12px' }}>{authError}</p> : null}
     </header>
   );
 }
