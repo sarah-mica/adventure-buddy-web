@@ -36,7 +36,10 @@ export default function Header({ trip, code, saveState, totalMiles, authUser, au
         className="ghost-input"
         style={{ fontSize: '15px', color: 'var(--text-muted)', maxWidth: '400px' }}
         inputStyle={{ fontSize: '15px', color: 'var(--text-muted)', maxWidth: '400px', width: '100%' }}
-        onSelect={(suggestion) => onUpdateField('location', suggestion.label)}
+        onSelect={(suggestion) => {
+          onUpdateField('location', suggestion.label);
+          onUpdateField('location_coords', suggestion.lat != null && suggestion.lng != null ? [suggestion.lat, suggestion.lng] : null);
+        }}
       />
       <div className="trip-meta">
         <span>Start <b>

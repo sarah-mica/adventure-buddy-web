@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { geocodeLocation } from '../utils/maptilerApis';
+import { useEffect, useMemo, useState } from 'react';
+import { retrieveLocation, searchLocation } from '../utils/maptilerApis';
 
 export default function LocationSearchBox({
   value,
@@ -14,6 +14,12 @@ export default function LocationSearchBox({
   const [suggestions, setSuggestions] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [suppressSuggestions, setSuppressSuggestions] = useState(false);
+  const nearbyPlacesKey = useMemo(() => {
+    return (nearbyPlaces || [])
+      .filter((item) => item.lat != null && item.lng != null)
+      .map((item) => `${Number(item.lat)}:${Number(item.lng)}`)
+      .join('|');
+  }, [nearbyPlaces]);
 
   useEffect(() => {
     const query = (value || '').trim();
@@ -23,29 +29,50 @@ export default function LocationSearchBox({
       return undefined;
     }
 
+    let cancelled = false;
     const timer = window.setTimeout(async () => {
       setIsSearching(true);
       try {
-        const items = await geocodeLocation(query, nearbyPlaces);
-        setSuggestions(items);
+        const items = await searchLocation(query, nearbyPlaces);
+        if (!cancelled) {
+          setSuggestions(items);
+        }
       } catch (error) {
-        setSuggestions([]);
+        if (!cancelled) {
+          setSuggestions([]);
+        }
       } finally {
-        setIsSearching(false);
+        if (!cancelled) {
+          setIsSearching(false);
+        }
       }
     }, 250);
 
-    return () => window.clearTimeout(timer);
-  }, [nearbyPlaces, suppressSuggestions, value]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [nearbyPlacesKey, suppressSuggestions, value]);
 
-  function handleSelect(suggestion) {
+  async function handleSelect(suggestion) {
     setSuggestions([]);
     setIsSearching(false);
     setSuppressSuggestions(true);
-    if (onSelect) {
-      onSelect(suggestion);
-    } else if (onChange) {
-      onChange(suggestion.label);
+
+    try {
+      const resolved = await retrieveLocation(suggestion.mapboxId || suggestion.id);
+      const selectedSuggestion = resolved || suggestion;
+      if (onSelect) {
+        onSelect(selectedSuggestion);
+      } else if (onChange) {
+        onChange(selectedSuggestion.label);
+      }
+    } catch (error) {
+      if (onSelect) {
+        onSelect(suggestion);
+      } else if (onChange) {
+        onChange(suggestion.label);
+      }
     }
   }
 

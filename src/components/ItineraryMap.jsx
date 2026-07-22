@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as maptilerSdk from '@maptiler/sdk';
 import '@maptiler/sdk/dist/maptiler-sdk.css';
+import { geocodeLocation } from '../utils/maptilerApis.js';
 
 const DEFAULT_CENTER = [39.5, -98.35];
+const DEFAULT_ZOOM = 3;
 
 function hashString(value) {
   let hash = 0;
@@ -29,29 +31,55 @@ function getDayColors(dayCount) {
   return Array.from({ length: dayCount }, (_, index) => palette[index % palette.length]);
 }
 
-export default function ItineraryMap({ days = [], tripLocation = '' }) {
+function normalizePoint(point) {
+  if (!Array.isArray(point) || point.length < 2) return null;
+  const lat = Number(point[0]);
+  const lng = Number(point[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return [lat, lng];
+}
+
+export default function ItineraryMap({ days = [], tripLocation = '', tripLocationCoords = null }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
   const [positions, setPositions] = useState([]);
+  const [tripLocationPosition, setTripLocationPosition] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
   const dayColors = useMemo(() => getDayColors(days.length || 1), [days.length]);
-  const itinerarySignature = useMemo(() => {
-    return JSON.stringify(
-      (days || []).map((day, dayIndex) => ({
-        dayTitle: day?.title || '',
-        stops: (day?.stops || []).map((stop, stopIndex) => ({
-          id: stop?.id || `${dayIndex}-${stopIndex}`,
-          name: stop?.name || '',
-          lat: stop?.lat ?? null,
-          lng: stop?.lng ?? null,
-        })),
-      }))
-    );
-  }, [days, tripLocation]);
+
+  const itinerarySignature = useMemo(() => JSON.stringify((days || []).map((day, dayIndex) => ({
+    dayTitle: day?.title || '',
+    stops: (day?.stops || []).map((stop, stopIndex) => ({
+      id: stop?.id || `${dayIndex}-${stopIndex}`,
+      name: stop?.name || '',
+      lat: stop?.lat ?? null,
+      lng: stop?.lng ?? null,
+    })),
+  }))), [days, tripLocation]);
 
   useEffect(() => {
     let alive = true;
 
     async function resolvePositions() {
+      if (Array.isArray(tripLocationCoords) && tripLocationCoords.length >= 2) {
+        const [lat, lng] = tripLocationCoords;
+        if (alive) setTripLocationPosition(normalizePoint([lat, lng]));
+      } else if (tripLocation?.trim()) {
+        try {
+          const results = await geocodeLocation(tripLocation, []);
+          const first = Array.isArray(results) ? results[0] : null;
+          if (first?.lat != null && first?.lng != null) {
+            if (alive) setTripLocationPosition([Number(first.lat), Number(first.lng)]);
+          } else if (alive) {
+            setTripLocationPosition(null);
+          }
+        } catch (error) {
+          if (alive) setTripLocationPosition(null);
+        }
+      } else if (alive) {
+        setTripLocationPosition(null);
+      }
+
       const entries = [];
       days.forEach((day, dayIndex) => {
         (day?.stops || []).forEach((stop, stopIndex) => {
@@ -82,17 +110,13 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
         }
 
         try {
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(entry.query)}`,
-            { headers: { Accept: 'application/json' } }
-          );
-          const data = await response.json();
-          const first = Array.isArray(data) ? data[0] : null;
-          if (first?.lat && first?.lon) {
+          const results = await geocodeLocation(entry.query, []);
+          const first = Array.isArray(results) ? results[0] : null;
+          if (first?.lat != null && first?.lng != null) {
             return {
               id: entry.id,
-              position: [Number(first.lat), Number(first.lon)],
-              label: entry.query,
+              position: [Number(first.lat), Number(first.lng)],
+              label: first.label || entry.query,
             };
           }
         } catch (error) {
@@ -114,10 +138,12 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
     return () => {
       alive = false;
     };
-  }, [itinerarySignature]);
+  }, [itinerarySignature, tripLocation, tripLocationCoords]);
 
   useEffect(() => {
     if (!mapContainer.current) return;
+
+    if (mapRef.current) return;
 
     const apiKey = import.meta.env.VITE_MAPTILER_KEY;
     if (!apiKey) {
@@ -125,126 +151,102 @@ export default function ItineraryMap({ days = [], tripLocation = '' }) {
       return;
     }
 
-    if (mapRef.current) return;
-
     maptilerSdk.config.apiKey = apiKey;
     const map = new maptilerSdk.Map({
       container: mapContainer.current,
       style: maptilerSdk.MapStyle.OUTDOOR_V4,
       center: [DEFAULT_CENTER[1], DEFAULT_CENTER[0]],
-      zoom: 3,
+      zoom: DEFAULT_ZOOM,
+    });
+
+    map.on('load', () => {
+      requestAnimationFrame(() => map.resize());
+      setMapReady(true);
+    });
+
+    map.on('error', (event) => {
+      console.error('MapTiler error', event?.error || event);
     });
 
     mapRef.current = map;
     return () => {
       map.remove();
       mapRef.current = null;
+      setMapReady(false);
     };
   }, []);
 
-  const dayGroups = useMemo(() => {
-    const groups = new Map();
-    positions.forEach((item) => {
-      if (!groups.has(item.dayIndex)) groups.set(item.dayIndex, []);
-      groups.get(item.dayIndex).push(item);
-    });
-    return Array.from(groups.entries()).map(([dayIndex, items]) => ({
-      dayIndex,
-      color: dayColors[dayIndex] || dayColors[0],
-      items,
-      route: items.map((item) => item.position),
-    }));
-  }, [dayColors, positions]);
-
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !mapReady) return;
 
-    const renderMapData = () => {
-      if (!positions.length) return;
+    const points = [];
+    if (tripLocationPosition) points.push(tripLocationPosition);
+    positions.forEach((item) => points.push(item.position));
 
-      const styleLayers = map.getStyle()?.layers || [];
-      styleLayers.forEach((layer) => {
-        if (layer.id.startsWith('route-') || layer.id.startsWith('marker-')) {
-          if (map.getLayer(layer.id)) map.removeLayer(layer.id);
-          if (map.getSource(layer.id)) map.removeSource(layer.id);
-        }
-      });
+    if (!points.length) return;
 
-      dayGroups.forEach((group) => {
-        if (group.route.length > 1) {
-          const sourceId = `route-${group.dayIndex}`;
-          const geojson = {
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                geometry: {
-                  type: 'LineString',
-                  coordinates: group.route.map((point) => [point[1], point[0]]),
-                },
-                properties: {},
-              },
-            ],
-          };
+    const allPoints = points.filter(Boolean);
+    const tripMarkerId = 'marker-trip-location';
 
-          map.addSource(sourceId, { type: 'geojson', data: geojson });
-          map.addLayer({
-            id: sourceId,
-            type: 'line',
-            source: sourceId,
-            paint: { 'line-color': group.color, 'line-width': 3 },
-          });
-        }
+    if (tripLocationPosition) {
+      const markerGeojson = {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [tripLocationPosition[1], tripLocationPosition[0]] },
+            properties: { title: tripLocation || 'Trip location' },
+          },
+        ],
+      };
 
-        group.items.forEach((item) => {
-          const markerId = `marker-${item.id}`;
-          const point = {
-            type: 'FeatureCollection',
-            features: [{
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [item.position[1], item.position[0]] },
-              properties: { title: item.label },
-            }],
-          };
-          map.addSource(markerId, { type: 'geojson', data: point });
-          map.addLayer({
-            id: markerId,
-            type: 'circle',
-            source: markerId,
-            paint: {
-              'circle-radius': 8,
-              'circle-color': group.color,
-              'circle-stroke-color': '#fff',
-              'circle-stroke-width': 1,
-            },
-          });
+      if (!map.getSource(tripMarkerId)) {
+        map.addSource(tripMarkerId, { type: 'geojson', data: markerGeojson });
+        map.addLayer({
+          id: tripMarkerId,
+          type: 'circle',
+          source: tripMarkerId,
+          paint: {
+            'circle-radius': 10,
+            'circle-color': '#1f6feb',
+            'circle-stroke-color': '#fff',
+            'circle-stroke-width': 2,
+          },
         });
-      });
-
-      const bounds = positions.reduce((acc, item) => {
-        const [lat, lng] = item.position;
-        const next = acc || [[lng, lat], [lng, lat]];
-        return [
-          [Math.min(next[0][0], lng), Math.min(next[0][1], lat)],
-          [Math.max(next[1][0], lng), Math.max(next[1][1], lat)],
-        ];
-      }, null);
-
-      if (bounds) {
-        map.fitBounds(bounds, { padding: 48, maxZoom: 10 });
+      } else {
+        map.getSource(tripMarkerId).setData(markerGeojson);
       }
-    };
-
-    if (map.isStyleLoaded && map.isStyleLoaded()) {
-      renderMapData();
-    } else {
-      map.once('style.load', renderMapData);
+    } else if (map.getLayer(tripMarkerId)) {
+      map.removeLayer(tripMarkerId);
+      map.removeSource(tripMarkerId);
     }
-  }, [dayGroups, positions]);
 
-  if (!days.some((day) => (day?.stops || []).length > 0)) {
-    return <div className="map-empty">Add a few waypoints to see them plotted on a map.</div>;
+    if (allPoints.length === 1) {
+      const [lat, lng] = allPoints[0];
+      map.flyTo({ center: [lng, lat], zoom: 8 });
+      return;
+    }
+
+    const bounds = allPoints.reduce((acc, point) => {
+      const [lat, lng] = point;
+      const next = acc || [[lng, lat], [lng, lat]];
+      return [
+        [Math.min(next[0][0], lng), Math.min(next[0][1], lat)],
+        [Math.max(next[1][0], lng), Math.max(next[1][1], lat)],
+      ];
+    }, null);
+
+    if (bounds) {
+      map.fitBounds(bounds, { padding: 48, maxZoom: 10 });
+    }
+  }, [mapReady, positions, tripLocationPosition]);
+
+  const hasTripLocation = Boolean(tripLocation?.trim());
+  const hasWaypoints = days.some((day) => (day?.stops || []).length > 0);
+
+  if (!hasTripLocation && !hasWaypoints) {
+    return <div className="map-empty">Add a trip location or a few waypoints to see them plotted on a map.</div>;
   }
 
   return (
