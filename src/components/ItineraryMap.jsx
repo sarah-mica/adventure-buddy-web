@@ -46,6 +46,9 @@ export default function ItineraryMap({ days = [], tripLocation = '', tripLocatio
   const [tripLocationPosition, setTripLocationPosition] = useState(null);
   const [mapReady, setMapReady] = useState(false);
   const dayColors = useMemo(() => getDayColors(days.length || 1), [days.length]);
+  const hasTripLocation = Boolean(tripLocation?.trim());
+  const hasWaypoints = days.some((day) => (day?.stops || []).length > 0);
+  const shouldRenderMap = hasTripLocation || hasWaypoints;
 
   const itinerarySignature = useMemo(() => JSON.stringify((days || []).map((day, dayIndex) => ({
     dayTitle: day?.title || '',
@@ -141,8 +144,16 @@ export default function ItineraryMap({ days = [], tripLocation = '', tripLocatio
   }, [itinerarySignature, tripLocation, tripLocationCoords]);
 
   useEffect(() => {
-    if (!mapContainer.current) return;
+    if (!shouldRenderMap) {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        setMapReady(false);
+      }
+      return;
+    }
 
+    if (!mapContainer.current) return;
     if (mapRef.current) return;
 
     const apiKey = import.meta.env.VITE_MAPTILER_KEY;
@@ -174,7 +185,7 @@ export default function ItineraryMap({ days = [], tripLocation = '', tripLocatio
       mapRef.current = null;
       setMapReady(false);
     };
-  }, []);
+  }, [shouldRenderMap]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -242,10 +253,7 @@ export default function ItineraryMap({ days = [], tripLocation = '', tripLocatio
     }
   }, [mapReady, positions, tripLocationPosition]);
 
-  const hasTripLocation = Boolean(tripLocation?.trim());
-  const hasWaypoints = days.some((day) => (day?.stops || []).length > 0);
-
-  if (!hasTripLocation && !hasWaypoints) {
+  if (!shouldRenderMap) {
     return <div className="map-empty">Add a trip location or a few waypoints to see them plotted on a map.</div>;
   }
 
