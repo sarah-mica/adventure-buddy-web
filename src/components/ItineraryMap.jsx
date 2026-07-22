@@ -45,7 +45,6 @@ export default function ItineraryMap({ days = [], tripLocation = '', tripLocatio
   const [positions, setPositions] = useState([]);
   const [tripLocationPosition, setTripLocationPosition] = useState(null);
   const [mapReady, setMapReady] = useState(false);
-  const dayColors = useMemo(() => getDayColors(days.length || 1), [days.length]);
   const hasTripLocation = Boolean(tripLocation?.trim());
   const hasWaypoints = days.some((day) => (day?.stops || []).length > 0);
   const shouldRenderMap = hasTripLocation || hasWaypoints;
@@ -191,46 +190,47 @@ export default function ItineraryMap({ days = [], tripLocation = '', tripLocatio
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    const points = [];
-    if (tripLocationPosition) points.push(tripLocationPosition);
-    positions.forEach((item) => points.push(item.position));
+    const framingPoints = [];
+    if (positions.length > 0) {
+      positions.forEach((item) => framingPoints.push(item.position));
+    } else if (tripLocationPosition) {
+      framingPoints.push(tripLocationPosition);
+    }
 
-    if (!points.length) return;
+    if (!framingPoints.length) return;
 
-    const allPoints = points.filter(Boolean);
-    const tripMarkerId = 'marker-trip-location';
+    const allPoints = framingPoints.filter(Boolean);
+    const waypointLayerId = 'waypoint-markers';
 
-    if (tripLocationPosition) {
-      const markerGeojson = {
+    if (positions.length > 0) {
+      const waypointGeojson = {
         type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [tripLocationPosition[1], tripLocationPosition[0]] },
-            properties: { title: tripLocation || 'Trip location' },
-          },
-        ],
+        features: positions.map((item) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [item.position[1], item.position[0]] },
+          properties: { title: item.label || 'Waypoint' },
+        })),
       };
 
-      if (!map.getSource(tripMarkerId)) {
-        map.addSource(tripMarkerId, { type: 'geojson', data: markerGeojson });
+      if (!map.getSource(waypointLayerId)) {
+        map.addSource(waypointLayerId, { type: 'geojson', data: waypointGeojson });
         map.addLayer({
-          id: tripMarkerId,
+          id: waypointLayerId,
           type: 'circle',
-          source: tripMarkerId,
+          source: waypointLayerId,
           paint: {
-            'circle-radius': 10,
-            'circle-color': '#1f6feb',
-            'circle-stroke-color': '#fff',
+            'circle-radius': 8,
+            'circle-color': '#d9822b',
+            'circle-stroke-color': '#ffffff',
             'circle-stroke-width': 2,
           },
         });
       } else {
-        map.getSource(tripMarkerId).setData(markerGeojson);
+        map.getSource(waypointLayerId).setData(waypointGeojson);
       }
-    } else if (map.getLayer(tripMarkerId)) {
-      map.removeLayer(tripMarkerId);
-      map.removeSource(tripMarkerId);
+    } else if (map.getLayer(waypointLayerId)) {
+      map.removeLayer(waypointLayerId);
+      map.removeSource(waypointLayerId);
     }
 
     if (allPoints.length === 1) {
